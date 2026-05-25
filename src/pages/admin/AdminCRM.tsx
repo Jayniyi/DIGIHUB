@@ -6,12 +6,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Search, Phone, Mail, User, CalendarDays, StickyNote } from "lucide-react";
-import { useState } from "react";
+import { Plus, Search, Phone, Mail, User, CalendarDays, StickyNote, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { collection, query, onSnapshot, addDoc, updateDoc, doc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 interface Lead {
-  id: number;
+  id: string;
   name: string;
   contact: string;
   email: string;
@@ -24,21 +26,14 @@ interface Lead {
   createdAt: string;
 }
 
-const initialLeads: Lead[] = [
-  { id: 1, name: "Adebayo Fashions", contact: "Adebayo Olanrewaju", email: "adebayo@fashions.ng", phone: "+234 801 234 5678", service: "Website + Ads", industry: "Fashion", stage: "New", notes: ["Interested in full package"], followUps: [], createdAt: "2024-01-15" },
-  { id: 2, name: "Lagos Eats", contact: "Chioma Eze", email: "chioma@lagoseats.ng", phone: "+234 802 345 6789", service: "Full Package", industry: "Food & Beverage", stage: "Contacted", notes: ["Follow up next week"], followUps: [], createdAt: "2024-01-12" },
-  { id: 3, name: "TechNaija Solutions", contact: "Emeka Obi", email: "emeka@technaija.ng", phone: "+234 803 456 7890", service: "SEO + Google Business", industry: "Technology", stage: "Qualified", notes: ["Budget confirmed, ready to start"], followUps: [], createdAt: "2024-01-10" },
-  { id: 4, name: "Abuja Properties", contact: "Hassan Musa", email: "hassan@abujaprops.ng", phone: "+234 804 567 8901", service: "Website + Branding", industry: "Real Estate", stage: "Converted", notes: ["Signed contract, project starting"], followUps: [], createdAt: "2024-01-08" },
-  { id: 5, name: "NaijaFit Gym", contact: "Blessing Ade", email: "blessing@naijafit.ng", phone: "+234 805 678 9012", service: "Flyer Design + Ads", industry: "Health & Fitness", stage: "New", notes: ["Needs promotional materials ASAP"], followUps: [], createdAt: "2024-01-16" },
-  { id: 6, name: "GreenLeaf Farms", contact: "Yusuf Bello", email: "yusuf@greenleaf.ng", phone: "+234 806 789 0123", service: "Branding + Website", industry: "Agriculture", stage: "Contacted", notes: ["Sent proposal, awaiting feedback"], followUps: [], createdAt: "2024-01-11" },
-];
-
 const stages = ["New", "Contacted", "Qualified", "Converted"];
 const stageColor: Record<string, string> = { New: "bg-info/15 text-info border-info/30", Contacted: "bg-warning/15 text-warning border-warning/30", Qualified: "bg-secondary/15 text-secondary border-secondary/30", Converted: "bg-success/15 text-success border-success/30" };
 const stageBorder: Record<string, string> = { New: "border-t-info", Contacted: "border-t-warning", Qualified: "border-t-secondary", Converted: "border-t-success" };
 
 const AdminCRM = () => {
-  const [leads, setLeads] = useState(initialLeads);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [addLeadOpen, setAddLeadOpen] = useState(false);
@@ -49,42 +44,120 @@ const AdminCRM = () => {
   const [leadForm, setLeadForm] = useState({ name: "", contact: "", email: "", phone: "", service: "", industry: "" });
   const { toast } = useToast();
 
-  const filteredLeads = leads.filter(l => l.name.toLowerCase().includes(search.toLowerCase()) || l.contact.toLowerCase().includes(search.toLowerCase()));
+  useEffect(() => {
+    setLoading(true);
+    const leadsRef = collection(db, "leads");
+    const leadsQuery = query(leadsRef);
+    const unsubscribe = onSnapshot(
+      leadsQuery,
+      (snapshot) => {
+        const items = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) }));
+        setLeads(items);
+        if (selectedLead) {
+          const updated = items.find((item) => item.id === selectedLead.id) || null;
+          setSelectedLead(updated);
+        }
+        setLoading(false);
+      },
+      (error) => {
+        console.error("failed to load leads", error);
+        setLoading(false);
+      }
+    );
+    return unsubscribe;
+  }, [selectedLead]);
 
-  const handleConvert = () => {
+  const filteredLeads = leads.filter((l) => l.name.toLowerCase().includes(search.toLowerCase()) || l.contact.toLowerCase().includes(search.toLowerCase()));
+
+  const handleConvert = async () => {
     if (!selectedLead) return;
-    setLeads(prev => prev.map(l => l.id === selectedLead.id ? { ...l, stage: "Converted" } : l));
-    setSelectedLead(prev => prev ? { ...prev, stage: "Converted" } : null);
-    toast({ title: "Lead Converted", description: `${selectedLead.name} has been converted to a client.` });
+    setIsSaving(true);
+    try {
+      const leadRef = doc(db, "leads", selectedLead.id);
+      await updateDoc(leadRef, { stage: "Converted" });
+      toast({ title: "Lead Converted", description: `${selectedLead.name} has been converted to a client.` });
+    } catch (error) {
+      console.error("failed to convert lead", error);
+      toast({ title: "Unable to convert lead", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleAddNote = () => {
+  const handleAddNote = async () => {
     if (!newNote.trim() || !selectedLead) return;
-    setLeads(prev => prev.map(l => l.id === selectedLead.id ? { ...l, notes: [...l.notes, newNote] } : l));
-    setSelectedLead(prev => prev ? { ...prev, notes: [...prev.notes, newNote] } : null);
-    setNewNote("");
-    setNoteDialog(false);
-    toast({ title: "Note Added" });
+    setIsSaving(true);
+    try {
+      const leadRef = doc(db, "leads", selectedLead.id);
+      const nextNotes = [...selectedLead.notes, newNote];
+      await updateDoc(leadRef, { notes: nextNotes });
+      setNewNote("");
+      setNoteDialog(false);
+      toast({ title: "Note Added" });
+    } catch (error) {
+      console.error("failed to add note", error);
+      toast({ title: "Unable to save note", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleScheduleFollowUp = () => {
+  const handleScheduleFollowUp = async () => {
     if (!followUpForm.date || !selectedLead) return;
-    const fu = { date: followUpForm.date, note: followUpForm.note };
-    setLeads(prev => prev.map(l => l.id === selectedLead.id ? { ...l, followUps: [...l.followUps, fu] } : l));
-    setSelectedLead(prev => prev ? { ...prev, followUps: [...prev.followUps, fu] } : null);
-    setFollowUpForm({ date: "", note: "" });
-    setFollowUpDialog(false);
-    toast({ title: "Follow-up Scheduled", description: `Scheduled for ${fu.date}` });
+    setIsSaving(true);
+    try {
+      const leadRef = doc(db, "leads", selectedLead.id);
+      const nextFollowUps = [...selectedLead.followUps, { date: followUpForm.date, note: followUpForm.note }];
+      await updateDoc(leadRef, { followUps: nextFollowUps });
+      setFollowUpForm({ date: "", note: "" });
+      setFollowUpDialog(false);
+      toast({ title: "Follow-up Scheduled", description: `Scheduled for ${followUpForm.date}` });
+    } catch (error) {
+      console.error("failed to schedule follow-up", error);
+      toast({ title: "Unable to schedule follow-up", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleAddLead = () => {
+  const handleAddLead = async () => {
     if (!leadForm.name || !leadForm.contact) return;
-    const nl: Lead = { id: Date.now(), ...leadForm, stage: "New", notes: [], followUps: [], createdAt: new Date().toISOString().split("T")[0] };
-    setLeads(prev => [nl, ...prev]);
-    setLeadForm({ name: "", contact: "", email: "", phone: "", service: "", industry: "" });
-    setAddLeadOpen(false);
-    toast({ title: "Lead Added", description: `${nl.name} added to pipeline.` });
+    setIsSaving(true);
+    try {
+      const newLead = {
+        name: leadForm.name,
+        contact: leadForm.contact,
+        email: leadForm.email,
+        phone: leadForm.phone,
+        service: leadForm.service,
+        industry: leadForm.industry,
+        stage: "New",
+        notes: [],
+        followUps: [],
+        createdAt: new Date().toISOString().split("T")[0],
+      };
+      await addDoc(collection(db, "leads"), newLead);
+      setLeadForm({ name: "", contact: "", email: "", phone: "", service: "", industry: "" });
+      setAddLeadOpen(false);
+      toast({ title: "Lead Added", description: `${newLead.name} added to pipeline.` });
+    } catch (error) {
+      console.error("failed to add lead", error);
+      toast({ title: "Unable to add lead", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="inline-flex items-center gap-3 rounded-2xl border border-border bg-card px-6 py-5 shadow-sm">
+          <Loader2 className="w-10 h-10 animate-spin text-primary" />
+          <span className="text-base font-medium text-foreground">Loading CRM pipeline...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -100,12 +173,12 @@ const AdminCRM = () => {
 
         <div className="mb-6 relative max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search leads..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Search leads..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {stages.map(stage => {
-            const stageLeads = filteredLeads.filter(l => l.stage === stage);
+          {stages.map((stage) => {
+            const stageLeads = filteredLeads.filter((l) => l.stage === stage);
             return (
               <div key={stage} className={`bg-card rounded-xl border border-border border-t-4 ${stageBorder[stage]}`}>
                 <div className="p-4 border-b border-border flex items-center justify-between">
@@ -115,7 +188,7 @@ const AdminCRM = () => {
                   </div>
                 </div>
                 <div className="p-3 space-y-3 min-h-[200px]">
-                  {stageLeads.map(lead => (
+                  {stageLeads.map((lead) => (
                     <Card key={lead.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSelectedLead(lead)}>
                       <CardContent className="p-4">
                         <p className="font-medium text-card-foreground text-sm">{lead.name}</p>
@@ -175,52 +248,63 @@ const AdminCRM = () => {
                   <p><span className="text-muted-foreground">Created:</span> <span className="text-card-foreground">{selectedLead.createdAt}</span></p>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-2">
-                  {selectedLead.stage !== "Converted" && <Button size="sm" onClick={handleConvert}>Convert to Client</Button>}
-                  <Button size="sm" variant="outline" onClick={() => setNoteDialog(true)}>Add Note</Button>
-                  <Button size="sm" variant="outline" onClick={() => setFollowUpDialog(true)}>Schedule Follow-up</Button>
+                  {selectedLead.stage !== "Converted" && (
+                    <Button size="sm" onClick={handleConvert} disabled={isSaving}>
+                      {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                      Convert to Client
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" onClick={() => setNoteDialog(true)} disabled={isSaving}>
+                    {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    Add Note
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setFollowUpDialog(true)} disabled={isSaving}>
+                    {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    Schedule Follow-up
+                  </Button>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Add Lead Dialog */}
         <Dialog open={addLeadOpen} onOpenChange={setAddLeadOpen}>
           <DialogContent>
             <DialogHeader><DialogTitle>Add New Lead</DialogTitle></DialogHeader>
             <div className="space-y-3 mt-2">
-              <Input placeholder="Business Name" value={leadForm.name} onChange={e => setLeadForm(f => ({ ...f, name: e.target.value }))} />
-              <Input placeholder="Contact Person" value={leadForm.contact} onChange={e => setLeadForm(f => ({ ...f, contact: e.target.value }))} />
-              <Input placeholder="Email" value={leadForm.email} onChange={e => setLeadForm(f => ({ ...f, email: e.target.value }))} />
-              <Input placeholder="Phone" value={leadForm.phone} onChange={e => setLeadForm(f => ({ ...f, phone: e.target.value }))} />
-              <Input placeholder="Service Interested In" value={leadForm.service} onChange={e => setLeadForm(f => ({ ...f, service: e.target.value }))} />
-              <Input placeholder="Industry" value={leadForm.industry} onChange={e => setLeadForm(f => ({ ...f, industry: e.target.value }))} />
-              <Button className="w-full" onClick={handleAddLead}>Add Lead</Button>
+              <Input placeholder="Business Name" value={leadForm.name} onChange={(e) => setLeadForm((f) => ({ ...f, name: e.target.value }))} />
+              <Input placeholder="Contact Person" value={leadForm.contact} onChange={(e) => setLeadForm((f) => ({ ...f, contact: e.target.value }))} />
+              <Input placeholder="Email" value={leadForm.email} onChange={(e) => setLeadForm((f) => ({ ...f, email: e.target.value }))} />
+              <Input placeholder="Phone" value={leadForm.phone} onChange={(e) => setLeadForm((f) => ({ ...f, phone: e.target.value }))} />
+              <Input placeholder="Service Interested In" value={leadForm.service} onChange={(e) => setLeadForm((f) => ({ ...f, service: e.target.value }))} />
+              <Input placeholder="Industry" value={leadForm.industry} onChange={(e) => setLeadForm((f) => ({ ...f, industry: e.target.value }))} />
+              <Button className="w-full" onClick={handleAddLead} disabled={isSaving}>
+                {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Add Lead
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
 
-        {/* Add Note Dialog */}
         <Dialog open={noteDialog} onOpenChange={setNoteDialog}>
           <DialogContent>
             <DialogHeader><DialogTitle>Add Note</DialogTitle></DialogHeader>
-            <Textarea placeholder="Write your note here..." value={newNote} onChange={e => setNewNote(e.target.value)} />
+            <Textarea placeholder="Write your note here..." value={newNote} onChange={(e) => setNewNote(e.target.value)} />
             <Button className="w-full" onClick={handleAddNote}>Save Note</Button>
           </DialogContent>
         </Dialog>
 
-        {/* Schedule Follow-up Dialog */}
         <Dialog open={followUpDialog} onOpenChange={setFollowUpDialog}>
           <DialogContent>
             <DialogHeader><DialogTitle>Schedule Follow-up</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div>
                 <label className="text-sm font-medium text-foreground mb-1.5 block">Date</label>
-                <Input type="date" value={followUpForm.date} onChange={e => setFollowUpForm(f => ({ ...f, date: e.target.value }))} />
+                <Input type="date" value={followUpForm.date} onChange={(e) => setFollowUpForm((f) => ({ ...f, date: e.target.value }))} />
               </div>
               <div>
                 <label className="text-sm font-medium text-foreground mb-1.5 block">Note (optional)</label>
-                <Textarea placeholder="Reminder note..." value={followUpForm.note} onChange={e => setFollowUpForm(f => ({ ...f, note: e.target.value }))} />
+                <Textarea placeholder="Reminder note..." value={followUpForm.note} onChange={(e) => setFollowUpForm((f) => ({ ...f, note: e.target.value }))} />
               </div>
               <Button className="w-full" onClick={handleScheduleFollowUp}>Schedule</Button>
             </div>

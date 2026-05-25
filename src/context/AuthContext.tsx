@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { auth, db } from "../../firebaseconfig";
+import { auth, db } from "@/lib/firebase";
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -16,6 +16,7 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
 } from "firebase/auth";
+import { addDoc, collection, deleteDoc, doc as fsDoc, serverTimestamp } from "firebase/firestore";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
 // shape of the user object we expose
@@ -117,11 +118,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const signIn = async (email: string, password: string) => {
-    const cred = await signInWithEmailAndPassword(auth, email, password);
-    const u = await buildUser(cred.user);
-    console.debug("signIn returned user", u);
-    setUser(u);
-    return u;
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const u = await buildUser(cred.user);
+      // create a session record so we can show devices and allow remote logout
+      try {
+        const sessionRef = await addDoc(collection(db, "sessions"), {
+          userId: cred.user.uid,
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "browser",
+          createdAt: serverTimestamp(),
+          lastSeen: serverTimestamp(),
+        });
+        try {
+          localStorage.setItem("sessionId", sessionRef.id);
+        } catch (e) {
+          // ignore localStorage errors
+        }
+      } catch (e) {
+        console.warn("failed to create session record", e);
+      }
+
+      console.debug("signIn returned user", u);
+      setUser(u);
+      return u;
+    } catch (err: any) {
+      // sanitize common firebase auth errors so UI shows a friendly message
+      const code = err?.code || err?.message || "";
+      if (typeof code === "string" && (code.includes("wrong-password") || code.includes("user-not-found") || code.includes("invalid-email"))) {
+        throw new Error("Username and password incorrect");
+      }
+      throw new Error("Authentication failed");
+    }
   };
 
   const signInWithPhone = async (phone: string) => {
@@ -183,6 +210,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const logout = () => {
+    // remove session record if available
+    try {
+      const sid = localStorage.getItem("sessionId");
+      if (sid) {
+        deleteDoc(fsDoc(db, "sessions", sid)).catch(() => {});
+        try {
+          localStorage.removeItem("sessionId");
+        } catch (e) {}
+      }
+    } catch (e) {}
     return signOut(auth);
   };
 

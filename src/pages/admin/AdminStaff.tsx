@@ -6,36 +6,52 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Eye } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { collection, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 interface Staff {
-  id: number; name: string; email: string; role: string; specialty: string; activeProjects: number; status: string;
+  id: string; name: string; email: string; role: string; specialty: string; activeProjects: number; status: string;
 }
-
-const initialStaff: Staff[] = [
-  { id: 1, name: "Amina Ibrahim", email: "amina@digiprohub.ng", role: "Designer", specialty: "Graphics & Branding", activeProjects: 4, status: "Active" },
-  { id: 2, name: "Tunde Bakare", email: "tunde@digiprohub.ng", role: "Ads Manager", specialty: "Meta & Google Ads", activeProjects: 3, status: "Active" },
-  { id: 3, name: "Kola Adeyemi", email: "kola@digiprohub.ng", role: "Developer", specialty: "Web Development", activeProjects: 2, status: "Active" },
-  { id: 4, name: "Fatima Yusuf", email: "fatima@digiprohub.ng", role: "Ads Manager", specialty: "YouTube & Google Ads", activeProjects: 2, status: "Active" },
-  { id: 5, name: "Chidi Nwosu", email: "chidi@digiprohub.ng", role: "SEO Specialist", specialty: "SEO & Google Business", activeProjects: 1, status: "On Leave" },
-];
 
 const statusColor: Record<string, string> = { Active: "bg-success/15 text-success border-success/30", "On Leave": "bg-warning/15 text-warning border-warning/30" };
 
 const AdminStaff = () => {
-  const [staff, setStaff] = useState(initialStaff);
+  const [staff, setStaff] = useState<Staff[]>([]);
   const [viewStaff, setViewStaff] = useState<Staff | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", role: "", specialty: "" });
   const { toast } = useToast();
 
-  const handleAdd = () => {
+  useEffect(() => {
+    const ref = collection(db, "staff");
+    const unsub = onSnapshot(ref, (snapshot) => {
+      const items = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      setStaff(items);
+    }, (error) => console.error("failed to load staff", error));
+    return unsub;
+  }, []);
+
+  const handleAdd = async () => {
     if (!form.name || !form.email) return;
-    setStaff(prev => [{ id: Date.now(), ...form, activeProjects: 0, status: "Active" }, ...prev]);
-    setForm({ name: "", email: "", role: "", specialty: "" });
-    setAddOpen(false);
-    toast({ title: "Staff Added", description: `${form.name} has been added to the team.` });
+    try {
+      await addDoc(collection(db, "staff"), {
+        name: form.name,
+        email: form.email,
+        role: form.role,
+        specialty: form.specialty,
+        activeProjects: 0,
+        status: "Active",
+        createdAt: serverTimestamp(),
+      });
+      setForm({ name: "", email: "", role: "", specialty: "" });
+      setAddOpen(false);
+      toast({ title: "Staff Added", description: `${form.name} has been added to the team.` });
+    } catch (err) {
+      console.error("failed to add staff", err);
+      toast({ title: "Unable to add staff", description: "Please try again.", variant: "destructive" });
+    }
   };
 
   return (

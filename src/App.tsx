@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import ClientDashboard from "./pages/ClientDashboard";
 import ClientProjects from "./pages/client/ClientProjects";
+import ClientAnnouncements from "./pages/client/ClientAnnouncements";
 import ClientMessages from "./pages/client/ClientMessages";
 import ClientInvoices from "./pages/client/ClientInvoices";
 import ClientSettings from "./pages/client/ClientSettings";
@@ -44,7 +45,8 @@ const App = () => (
           <Route path="/auth" element={<Auth />} />
           <Route element={<RequireAuth />}> 
             <Route path="/dashboard" element={<ClientDashboard />} />
-            <Route path="/dashboard/projects" element={<ClientProjects />} />
+            <Route path="/dashboard/projects/:category?" element={<ClientProjects />} />
+            <Route path="/dashboard/announcements" element={<ClientAnnouncements />} />
             <Route path="/dashboard/messages" element={<ClientMessages />} />
             <Route path="/dashboard/invoices" element={<ClientInvoices />} />
             <Route path="/dashboard/settings" element={<ClientSettings />} />

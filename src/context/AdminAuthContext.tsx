@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "../../firebaseconfig";
+import { db } from "@/lib/firebase";
 import { AdminAuthContext } from "./AdminAuthCore";
 
 // we now rely on Firebase auth and a `role` field stored in Firestore

@@ -6,7 +6,7 @@ import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { collection, onSnapshot, query, doc, getDoc } from "firebase/firestore";
-import { db } from "../../../firebaseconfig";
+import { db } from "@/lib/firebase";
 
 interface Project {
   id: string;

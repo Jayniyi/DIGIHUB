@@ -8,7 +8,7 @@ import { Search, Eye } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
-import { db } from "../../../firebaseconfig";
+import { db } from "@/lib/firebase";
 
 interface Client {
   id: string;

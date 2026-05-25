@@ -11,7 +11,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminAuth } from "@/context/useAdminAuth";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
-import { db } from "../../../firebaseconfig";
+import { db } from "@/lib/firebase";
 
 interface NavItem {
   label: string;
@@ -23,8 +23,17 @@ const clientNav: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { label: "My Projects", icon: FileText, href: "/dashboard/projects" },
   { label: "Messages", icon: MessageSquare, href: "/dashboard/messages" },
+  { label: "Announcements", icon: Bell, href: "/dashboard/announcements" },
   { label: "Invoices", icon: Receipt, href: "/dashboard/invoices" },
   { label: "Settings", icon: Settings, href: "/dashboard/settings" },
+];
+
+const projectCategories = [
+  { label: "All Services", href: "/dashboard/projects" },
+  { label: "Website Development", href: "/dashboard/projects/website-development" },
+  { label: "Digital Ads", href: "/dashboard/projects/digital-ads" },
+  { label: "Design & Branding", href: "/dashboard/projects/branding" },
+  { label: "SEO / Local Search", href: "/dashboard/projects/seo" },
 ];
 
 const adminNav: NavItem[] = [
@@ -50,9 +59,12 @@ const DashboardSidebar = ({ role }: DashboardSidebarProps) => {
   const navItems = role === "admin" ? adminNav : clientNav;
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const { logout } = useAdminAuth();
-  const { user } = useAuth();
+  const [announcementCount, setAnnouncementCount] = useState(0);
+  const { user, logout: clientLogout } = useAuth();
+  const { logout: adminLogout } = useAdminAuth();
+  const logout = role === "admin" ? adminLogout : clientLogout;
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -60,12 +72,22 @@ const DashboardSidebar = ({ role }: DashboardSidebarProps) => {
       const q = query(collection(db, "threads"), where("unreadForAdmin", "==", true));
       unsubscribe = onSnapshot(q, (snapshot) => setUnreadCount(snapshot.size));
     } else if (user) {
-      const q = query(
+      const messageQuery = query(
         collection(db, "threads"),
         where("clientId", "==", user.uid),
         where("unreadForClient", "==", true)
       );
-      unsubscribe = onSnapshot(q, (snapshot) => setUnreadCount(snapshot.size));
+      const announcementsQuery = query(
+        collection(db, "announcements"),
+        where("status", "==", "Published"),
+        where("audience", "in", ["All Users", "Clients"])
+      );
+      const messageUnsub = onSnapshot(messageQuery, (snapshot) => setUnreadCount(snapshot.size));
+      const announcementUnsub = onSnapshot(announcementsQuery, (snapshot) => setAnnouncementCount(snapshot.size));
+      unsubscribe = () => {
+        messageUnsub();
+        announcementUnsub();
+      };
     }
     return unsubscribe;
   }, [role, user]);
@@ -90,7 +112,55 @@ const DashboardSidebar = ({ role }: DashboardSidebarProps) => {
 
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.href;
+          const isProjectRoot = item.href === "/dashboard/projects";
+          const isActive = isProjectRoot ? location.pathname.startsWith("/dashboard/projects") : location.pathname === item.href;
+
+          if (isProjectRoot) {
+            return (
+              <div key={item.href}>
+                <Link
+                  to={item.href}
+                  onClick={() => {
+                    setProjectsOpen(true);
+                    if (isMobile) setOpen(false);
+                  }}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-primary"
+                      : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                  )}
+                >
+                  <item.icon className="w-5 h-5" />
+                  <span className="flex-1">{item.label}</span>
+                  <span className="text-xs text-sidebar-foreground/70">{projectsOpen ? "▾" : "▸"}</span>
+                </Link>
+                {(projectsOpen || isActive) && (
+                  <div className="space-y-1 pl-10 mt-1">
+                    {projectCategories.map((category) => {
+                      const isCategoryActive = location.pathname === category.href;
+                      return (
+                        <Link
+                          key={category.href}
+                          to={category.href}
+                          onClick={() => isMobile && setOpen(false)}
+                          className={cn(
+                            "block rounded-lg px-3 py-2 text-sm transition-colors",
+                            isCategoryActive
+                              ? "bg-sidebar-accent text-sidebar-primary"
+                              : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                          )}
+                        >
+                          {category.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           return (
             <Link
               key={item.href}
@@ -108,6 +178,11 @@ const DashboardSidebar = ({ role }: DashboardSidebarProps) => {
               {item.label === "Messages" && unreadCount > 0 ? (
                 <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-secondary px-2 py-1 text-[10px] font-semibold text-secondary-foreground">
                   {unreadCount}
+                </span>
+              ) : null}
+              {item.label === "Announcements" && announcementCount > 0 ? (
+                <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-secondary px-2 py-1 text-[10px] font-semibold text-secondary-foreground">
+                  {announcementCount}
                 </span>
               ) : null}
             </Link>

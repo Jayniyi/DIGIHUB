@@ -2,4 +2,6 @@
 // they were referenced elsewhere in the codebase.  We simply re-export from
 // the root `firebaseconfig.js` so there is only a single source of truth.
 
-export * from "../../firebaseconfig";
+import { auth, db, analytics } from "../../firebaseconfig";
+
+export { auth, db, analytics };

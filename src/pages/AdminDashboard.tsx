@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "../context/AuthContext";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, doc, getDoc, updateDoc, where } from "firebase/firestore";
-import { db } from "../../firebaseconfig";
+import { db } from "@/lib/firebase";
 
 interface AdminProject {
   id: string;
@@ -23,6 +23,8 @@ const AdminDashboard = () => {
   const displayName = user?.businessName || user?.fullName || "";
   const [projects, setProjects] = useState<AdminProject[]>([]);
   const [clientsCount, setClientsCount] = useState(0);
+  const [leadsCount, setLeadsCount] = useState(0);
+  const [revenueMTD, setRevenueMTD] = useState(0);
 
   useEffect(() => {
     const projectsRef = collection(db, "projects");
@@ -74,6 +76,46 @@ const AdminDashboard = () => {
     return unsub;
   }, []);
 
+  useEffect(() => {
+    const leadsRef = collection(db, "leads");
+    const leadsQ = query(leadsRef);
+    const leadsUnsub = onSnapshot(leadsQ, (snapshot) => setLeadsCount(snapshot.size));
+
+    const invoicesRef = collection(db, "invoices");
+    const invoicesQ = query(invoicesRef);
+    const invoicesUnsub = onSnapshot(invoicesQ, (snapshot) => {
+      const now = new Date();
+      let total = 0;
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data() as any;
+        const dateText = data.date;
+        const createdAt = dateText ? new Date(dateText) : null;
+        const isCurrentMonth = createdAt
+          ? createdAt.getFullYear() === now.getFullYear() && createdAt.getMonth() === now.getMonth()
+          : true;
+
+        if (!isCurrentMonth) return;
+
+        const amount = typeof data.amountNum === "number"
+          ? data.amountNum
+          : typeof data.amount === "string"
+            ? Number(data.amount.replace(/[^0-9.-]/g, ""))
+            : 0;
+
+        if (!Number.isNaN(amount)) total += amount;
+      });
+      setRevenueMTD(total);
+    });
+
+    return () => {
+      leadsUnsub();
+      invoicesUnsub();
+    };
+  }, []);
+
+  const adCampaigns = projects.filter((project) => /ads|campaign/i.test(project.service || "")).length;
+  const designOrders = projects.filter((project) => /(design|branding)/i.test(project.service || "")).length;
+
   return (
     <div className="flex min-h-screen bg-background">
       <DashboardSidebar role="admin" />
@@ -88,9 +130,10 @@ const AdminDashboard = () => {
         <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <StatsCard title="Total Clients" value={String(clientsCount)} icon={Users} />
           <StatsCard title="Active Projects" value={String(projects.length)} icon={FileText} />
-          <StatsCard title="Ad Campaigns" value="12" icon={Megaphone} />
-          <StatsCard title="Pipeline Leads" value="27" icon={Target} />
-          <StatsCard title="Revenue (MTD)" value="₦4.2M" icon={TrendingUp} />
+          <StatsCard title="Ad Campaigns" value={String(adCampaigns)} icon={Megaphone} />
+          <StatsCard title="Design Orders" value={String(designOrders)} icon={TrendingUp} />
+          <StatsCard title="Pipeline Leads" value={String(leadsCount)} icon={Target} />
+          <StatsCard title="Revenue (MTD)" value={`₦${revenueMTD.toLocaleString()}`} icon={TrendingUp} />
         </div>
 
         <div className="grid lg:grid-cols-2 gap-6">

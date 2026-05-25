@@ -7,10 +7,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Plus, Eye } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../../firebaseconfig";
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 interface Project {
   id: string;
@@ -50,7 +51,16 @@ const services = [
   "Flyer & Graphics",
 ];
 
+const projectCategories = [
+  { slug: "all", label: "All Services", matcher: null },
+  { slug: "website-development", label: "Website Development", matcher: /(website|development)/i },
+  { slug: "digital-ads", label: "Digital Ads", matcher: /(ads|campaign)/i },
+  { slug: "branding", label: "Design & Branding", matcher: /(design|branding|logo|graphics)/i },
+  { slug: "seo", label: "SEO / Local Search", matcher: /(seo|google business|google)/i },
+];
+
 const ClientProjects = () => {
+  const { category } = useParams<{ category?: string }>();
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [search, setSearch] = useState("");
@@ -92,7 +102,13 @@ const ClientProjects = () => {
     return unsubscribe;
   }, [user, toast]);
 
-  const filtered = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+  const currentCategory = projectCategories.find((item) => item.slug === (category || "all"));
+  const filtered = projects
+    .filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
+    .filter((project) => {
+      if (!currentCategory || !currentCategory.matcher) return true;
+      return currentCategory.matcher.test(project.service);
+    });
 
   const handleSubmitRequest = async () => {
     if (!user || !form.name || !form.service) return;
@@ -124,7 +140,7 @@ const ClientProjects = () => {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
           <div>
             <h1 className="font-heading text-2xl font-bold text-foreground">My Projects</h1>
-            <p className="text-muted-foreground text-sm mt-1">Track and manage all your digital projects.</p>
+            <p className="text-muted-foreground text-sm mt-1">Track and manage your projects — {currentCategory?.label || "All Services"}.</p>
           </div>
           <Dialog open={requestOpen} onOpenChange={setRequestOpen}>
             <DialogTrigger asChild>
@@ -188,14 +204,10 @@ const ClientProjects = () => {
                     <Eye className="w-5 h-5" />
                   </Button>
                 </div>
-                <div className="mt-4">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                    <span>Progress</span>
-                    <span>{project.progress}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-secondary rounded-full transition-all" style={{ width: `${project.progress}%` }} />
-                  </div>
+                <div className="mt-4 flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">Progress</span>
+                  <span className="text-sm font-semibold text-foreground">{project.progress}%</span>
+                  <Badge variant="outline" className={statusColor[project.status] || statusColor.Pending}>{project.status}</Badge>
                 </div>
               </div>
             ))
@@ -217,9 +229,6 @@ const ClientProjects = () => {
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div><span className="text-muted-foreground">Date:</span> <span className="text-foreground">{viewProject.date}</span></div>
                   <div><span className="text-muted-foreground">Progress:</span> <span className="text-foreground">{viewProject.progress}%</span></div>
-                </div>
-                <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                  <div className="h-full bg-secondary rounded-full" style={{ width: `${viewProject.progress}%` }} />
                 </div>
               </div>
             )}

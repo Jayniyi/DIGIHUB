@@ -1,6 +1,6 @@
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import StatsCard from "@/components/dashboard/StatsCard";
-import { FileText, Clock, CheckCircle, MessageSquare, Plus } from "lucide-react";
+import { FileText, Clock, CheckCircle, MessageSquare, Plus, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "../context/AuthContext";
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../firebaseconfig";
+import { db } from "@/lib/firebase";
 
 interface Project {
   id: string;
@@ -57,6 +57,7 @@ const ClientDashboard = () => {
   const [requestOpen, setRequestOpen] = useState(false);
   const [form, setForm] = useState({ name: "", service: "", description: "" });
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -98,6 +99,7 @@ const ClientDashboard = () => {
 
   const handleSubmit = async () => {
     if (!user || !form.name || !form.service) return;
+    setIsSubmitting(true);
 
     try {
       await addDoc(collection(db, "projects"), {
@@ -116,6 +118,8 @@ const ClientDashboard = () => {
     } catch (error: any) {
       console.error("Failed to submit project request", error);
       toast({ title: "Submission failed", description: error.message || "Please try again.", variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -189,7 +193,10 @@ const ClientDashboard = () => {
                 <label className="text-sm font-medium text-foreground mb-1.5 block">Description</label>
                 <Textarea placeholder="Describe what you need..." value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
               </div>
-              <Button className="w-full" onClick={handleSubmit}>Submit Request</Button>
+              <Button className="w-full" onClick={handleSubmit} disabled={isSubmitting}>
+                {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Submit Request
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

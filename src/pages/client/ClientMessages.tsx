@@ -4,11 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
+import React from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc, doc } from "firebase/firestore";
-import { db } from "../../../firebaseconfig";
+import { db } from "@/lib/firebase";
 
 interface Message {
   id: string;
@@ -31,6 +32,7 @@ interface Conversation {
 }
 
 const categories = ["All", "Ads", "Designs", "Website", "SEO", "Support"];
+const teams = ["Support", "Ads", "Designs", "Website", "SEO", "Billing", "Account"];
 
 const ClientMessages = () => {
   const { user } = useAuth();
@@ -39,6 +41,8 @@ const ClientMessages = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [newThreadText, setNewThreadText] = useState("");
+  const newMessageRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const newThreadRef = React.useRef<HTMLTextAreaElement | null>(null);
   const [newThreadCategory, setNewThreadCategory] = useState("Support");
   const [activeCategory, setActiveCategory] = useState("All");
   const isMobile = useIsMobile();
@@ -122,6 +126,33 @@ const ClientMessages = () => {
     }
   };
 
+  const openTeamConversation = async (team: string) => {
+    if (!user) return;
+    // find existing thread for this team
+    const existing = threads.find((t) => t.category === team && t.clientId === user.uid);
+    if (existing) {
+      setActiveThread(existing.id);
+      return;
+    }
+    // create new thread for this team
+    try {
+      const clientName = user.businessName || user.fullName || user.email || "Client";
+      const threadRef = await addDoc(collection(db, "threads"), {
+        clientId: user.uid,
+        clientName,
+        category: team,
+        lastMessage: "",
+        updatedAt: serverTimestamp(),
+        unreadForAdmin: true,
+        unreadForClient: false,
+      });
+      setActiveThread(threadRef.id);
+    } catch (error) {
+      console.error("Failed to open team conversation", error);
+      toast({ title: "Unable to open conversation", description: error.message || "Please try again.", variant: "destructive" });
+    }
+  };
+
   const handleSend = async () => {
     if (!newMessage.trim() || !activeThread || !user) return;
     try {
@@ -157,6 +188,17 @@ const ClientMessages = () => {
   const filtered = activeCategory === "All" ? threads : threads.filter((thread) => thread.category === activeCategory);
   const currentThread = threads.find((thread) => thread.id === activeThread);
 
+  // prepare a teams list (WhatsApp-like) derived from teams and threads
+  const teamSummaries = teams.map((team) => {
+    const teamThreads = threads.filter((t) => t.category === team);
+    if (teamThreads.length === 0) {
+      return { team, lastMessage: "", updatedAt: null, unread: 0, threadId: null };
+    }
+    const latest = [...teamThreads].sort((a, b) => (b.updatedAt?.toMillis?.() ?? 0) - (a.updatedAt?.toMillis?.() ?? 0))[0];
+    const unread = teamThreads.reduce((acc, t) => acc + (t.unreadForClient ? 1 : 0), 0);
+    return { team, lastMessage: latest.lastMessage || "", updatedAt: latest.updatedAt || null, unread, threadId: latest.id };
+  });
+
   if (!user) {
     return <div className="flex min-h-screen items-center justify-center">Loading messages...</div>;
   }
@@ -169,11 +211,11 @@ const ClientMessages = () => {
           <div className="p-5 border-b border-border">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Messages</p>
-                <h2 className="mt-2 text-2xl font-semibold text-card-foreground">Chat with admin</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Ask questions, share details, and track what admin says.</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Chats</p>
+                <h2 className="mt-2 text-2xl font-semibold text-card-foreground">Contact Our Teams</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Select a team to start a conversation.</p>
               </div>
-              <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{filtered.length} threads</div>
+              <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{teamSummaries.length} teams</div>
             </div>
 
             <div className="mt-6 grid gap-2">
@@ -181,7 +223,7 @@ const ClientMessages = () => {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-medium text-card-foreground">Start a new conversation</p>
-                    <p className="text-xs text-muted-foreground">Pick a topic and send a request to admin.</p>
+                    <p className="text-xs text-muted-foreground">Pick a team and send a request to them.</p>
                   </div>
                 </div>
                 <div className="mt-4 space-y-3">
@@ -190,15 +232,21 @@ const ClientMessages = () => {
                     onChange={(e) => setNewThreadCategory(e.target.value)}
                     className="w-full rounded-2xl border border-border bg-muted px-3 py-2 text-sm text-foreground"
                   >
-                    {categories.filter((cat) => cat !== "All").map((category) => (
+                    {teams.map((category) => (
                       <option key={category} value={category}>{category}</option>
                     ))}
                   </select>
                   <Textarea
                     placeholder="What do you need help with today?"
                     value={newThreadText}
+                    ref={newThreadRef}
                     onChange={(e) => setNewThreadText(e.target.value)}
-                    className="min-h-[110px] rounded-3xl border border-border bg-background px-4 py-3"
+                    onInput={(e) => {
+                      const t = e.currentTarget as HTMLTextAreaElement;
+                      t.style.height = "auto";
+                      t.style.height = Math.min(t.scrollHeight, 220) + "px";
+                    }}
+                    className="min-h-[64px] rounded-3xl border border-border bg-background px-4 py-3 resize-none"
                   />
                   <Button className="w-full" onClick={createNewThread} disabled={!newThreadText.trim()}>
                     Start conversation
@@ -209,30 +257,37 @@ const ClientMessages = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-            {filtered.length === 0 ? (
+            {teamSummaries.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-border bg-muted p-6 text-center text-sm text-muted-foreground">
-                No conversations yet. Use the form above to message admin directly.
+                No teams available.
               </div>
             ) : (
-              filtered.map((thread) => (
+              teamSummaries.map((t) => (
                 <button
-                  key={thread.id}
-                  onClick={() => selectThread(thread.id)}
-                  className={`w-full rounded-3xl border p-4 text-left transition ${
-                    activeThread === thread.id ? "border-primary bg-primary/5" : "border-border bg-background hover:border-primary/60"
+                  key={t.team}
+                  onClick={async () => {
+                    // find an existing thread for this team else create one
+                    if (!user) return;
+                    const existing = threads.filter((th) => th.category === t.team).sort((a, b) => (b.updatedAt?.toMillis?.() ?? 0) - (a.updatedAt?.toMillis?.() ?? 0))[0];
+                    if (existing) {
+                      selectThread(existing.id);
+                    } else {
+                      const id = await openTeamConversation(t.team);
+                    }
+                  }}
+                  className={`w-full rounded-3xl border p-3 text-left transition flex items-center gap-3 ${
+                    activeThread && t.threadId === activeThread ? "border-primary bg-primary/5" : "border-border bg-background hover:border-primary/60"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-card-foreground truncate">{thread.category}</p>
-                      <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{thread.lastMessage}</p>
+                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">{t.team.split(" ").map(s=>s[0]).join("")}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-card-foreground truncate">{t.team}</p>
+                      <span className="text-[11px] text-muted-foreground">{formatTime(t.updatedAt)}</span>
                     </div>
-                    <span className="text-[11px] text-muted-foreground">{formatTime(thread.updatedAt)}</span>
+                    <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{t.lastMessage || "Start a conversation with this team"}</p>
                   </div>
-                  <div className="mt-3 flex items-center justify-between gap-2">
-                    <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{thread.clientName}</span>
-                    {thread.unreadForClient && <span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-semibold text-secondary-foreground">New</span>}
-                  </div>
+                  {t.unread > 0 && <span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-semibold text-secondary-foreground">{t.unread}</span>}
                 </button>
               ))
             )}
@@ -243,11 +298,10 @@ const ClientMessages = () => {
           {currentThread ? (
             <>
               <div className="p-5 border-b border-border bg-white shadow-sm flex items-center justify-between gap-4">
-                {isMobile && (
-                  <button onClick={() => setActiveThread(null)} className="text-muted-foreground hover:text-foreground">
-                    <ArrowLeft className="w-5 h-5" />
-                  </button>
-                )}
+                <button onClick={() => setActiveThread(null)} className="text-muted-foreground hover:text-foreground flex items-center gap-2">
+                  <ArrowLeft className="w-5 h-5" />
+                  <span className="hidden sm:inline">Back to teams</span>
+                </button>
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{currentThread.category}</p>
                   <h3 className="mt-1 text-xl font-semibold text-card-foreground">Conversation with admin</h3>
@@ -262,7 +316,7 @@ const ClientMessages = () => {
                 ) : (
                   messages.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.senderRole === "user" ? "justify-end" : "justify-start"}`}>
-                      <div className={`relative max-w-[75%] rounded-3xl px-5 py-4 shadow-sm ${msg.senderRole === "user" ? "bg-primary text-primary-foreground" : "bg-white text-foreground"}`}>
+                      <div className={`relative max-w-[65%] rounded-3xl px-5 py-4 shadow-sm ${msg.senderRole === "user" ? "bg-primary text-primary-foreground" : "bg-white text-foreground"}`}>
                         <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground mb-2">{msg.senderRole === "user" ? "You" : "Admin"}</p>
                         <p className="text-sm leading-6 whitespace-pre-wrap">{msg.content}</p>
                         <p className="mt-3 text-[11px] text-muted-foreground">{formatTime(msg.createdAt)}</p>
@@ -276,9 +330,15 @@ const ClientMessages = () => {
                 <div className="space-y-3">
                   <Textarea
                     value={newMessage}
+                    ref={newMessageRef}
                     onChange={(e) => setNewMessage(e.target.value)}
+                    onInput={(e) => {
+                      const t = e.currentTarget as HTMLTextAreaElement;
+                      t.style.height = "auto";
+                      t.style.height = Math.min(t.scrollHeight, 220) + "px";
+                    }}
                     placeholder="Write your reply..."
-                    className="min-h-[110px] rounded-3xl border border-border bg-muted px-4 py-3"
+                    className="min-h-[64px] rounded-3xl border border-border bg-muted px-4 py-3 resize-none"
                   />
                   <div className="flex justify-end">
                     <Button onClick={handleSend} disabled={!newMessage.trim()}>
