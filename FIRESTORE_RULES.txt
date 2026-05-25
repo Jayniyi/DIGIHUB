@@ -1,0 +1,108 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Utility function: check if user is admin
+    function isAdmin(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.role == 'admin';
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // anyone signed‑in can read their own doc or, if they're an admin,
+      // read any user.
+      allow read: if request.auth != null &&
+                  (request.auth.uid == userId || isAdmin(request.auth.uid));
+
+      // creation: only the authenticated user may create their document
+      allow create: if request.auth != null &&
+                    request.auth.uid == userId;
+
+      // updates: owner may modify their document but may not change the role
+      // field; an admin may modify anything (including role changes).
+      allow update: if request.auth != null && (
+           (request.auth.uid == userId &&
+              request.resource.data.role == resource.data.role
+           )
+           || isAdmin(request.auth.uid)
+      );
+
+      // deletions are disallowed by clients
+      allow delete: if false;
+    }
+
+    // Projects collection: every user can create and read their own projects,
+    // and admins can read or update any project.
+    match /projects/{projectId} {
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.status == 'Pending'
+                    && request.resource.data.progress == 0;
+
+      allow read: if request.auth != null
+                  && (request.auth.uid == resource.data.userId || isAdmin(request.auth.uid));
+
+      allow update: if request.auth != null && (
+           (request.auth.uid == resource.data.userId &&
+              request.resource.data.userId == resource.data.userId
+           )
+           || isAdmin(request.auth.uid)
+      );
+
+      allow delete: if false;
+    }
+
+    // Threads and messages for client/admin chat
+    match /threads/{threadId} {
+      allow create: if request.auth != null
+                    && request.resource.data.clientId == request.auth.uid
+                    && request.resource.data.clientName is string
+                    && request.resource.data.category is string
+                    && request.resource.data.lastMessage is string
+                    && request.resource.data.updatedAt == request.time
+                    && request.resource.data.unreadForAdmin == true
+                    && request.resource.data.unreadForClient == false;
+
+      allow read: if request.auth != null
+                  && (request.auth.uid == resource.data.clientId || isAdmin(request.auth.uid));
+
+      allow update: if request.auth != null && (
+           isAdmin(request.auth.uid)
+           || (
+              request.auth.uid == resource.data.clientId
+              && request.resource.data.clientId == resource.data.clientId
+              && request.resource.data.clientName == resource.data.clientName
+              && request.resource.data.category == resource.data.category
+              && request.resource.data.lastMessage is string
+              && request.resource.data.unreadForAdmin == true
+              && request.resource.data.unreadForClient == false
+           )
+      );
+
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow create: if request.auth != null
+                      && request.resource.data.senderId == request.auth.uid
+                      && request.resource.data.senderRole in ['user', 'admin']
+                      && request.resource.data.content is string
+                      && request.resource.data.createdAt == request.time
+                      && (
+                        (request.resource.data.senderRole == 'user' && request.auth.uid == get(/databases/$(database)/documents/threads/$(threadId)).data.clientId)
+                        || (request.resource.data.senderRole == 'admin' && isAdmin(request.auth.uid))
+                      );
+
+        allow read: if request.auth != null
+                    && (request.auth.uid == get(/databases/$(database)/documents/threads/$(threadId)).data.clientId
+                        || isAdmin(request.auth.uid));
+
+        allow update, delete: if false;
+      }
+    }
+
+    // block everything else by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
